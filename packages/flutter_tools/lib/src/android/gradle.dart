@@ -24,7 +24,7 @@ import 'android_sdk.dart';
 import 'android_studio.dart';
 
 const String gradleVersion = '4.4';
-final RegExp _assembleTaskPattern = RegExp(r'assemble([^:]+): task ');
+final RegExp _assembleTaskPattern = RegExp(r'assemble(\S+)');
 
 GradleProject _cachedGradleProject;
 String _cachedGradleExecutable;
@@ -98,12 +98,13 @@ Future<GradleProject> _readGradleProject() async {
   GradleProject project;
   try {
     final RunResult runResult = await runCheckedAsync(
-      <String>[gradle, 'app:properties'],
+      <String>[gradle, 'app:properties', 'app:tasks', '--all'],
       workingDirectory: flutterProject.android.hostAppGradleRoot.path,
       environment: _gradleEnv,
     );
-    final String properties = runResult.stdout.trim();
-    project = GradleProject.fromAppProperties(properties);
+    final RegExp taskPattern = RegExp(r'^(?:> Task )?:app:properties([\s\S]*?)^(?:> Task )?:app:tasks([\s\S]*)', multiLine: true);
+    final Match taskMatch = taskPattern.firstMatch(runResult.stdout);
+    project = GradleProject.fromAppProperties(taskMatch.group(1), taskMatch.group(2));
   } catch (exception) {
     if (getFlutterPluginVersion(flutterProject.android) == FlutterPluginVersion.managed) {
       status.cancel();
@@ -443,7 +444,7 @@ Map<String, String> get _gradleEnv {
 class GradleProject {
   GradleProject(this.buildTypes, this.productFlavors, this.apkDirectory);
 
-  factory GradleProject.fromAppProperties(String properties) {
+  factory GradleProject.fromAppProperties(String properties, String tasks) {
     // Extract build directory.
     final String buildDir = properties
         .split('\n')
@@ -453,7 +454,7 @@ class GradleProject {
 
     // Extract build types and product flavors.
     final Set<String> variants = Set<String>();
-    for (String s in properties.split('\n')) {
+    for (String s in tasks.split('\n')) {
       final Match match = _assembleTaskPattern.matchAsPrefix(s);
       if (match != null) {
         final String variant = match.group(1).toLowerCase();
